@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tail-End Memory Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column lab bench. Controls strip, matched-loss scrubber, summary table,
+   three small-multiple bar panels (one per optimizer), gap-vs-loss chart, then notes. */
+:root {
+  --bg: #f4f5f7;
+  --surface: #fcfcfb;
+  --ink: #14181f;
+  --ink-2: #4a5160;
+  --muted: #7c8392;
+  --grid: #e3e6ec;
+  --axis: #c3c8d2;
+  --line: rgba(20, 24, 31, 0.12);
+  --ctl: #1f2a44;
+  --ctl-ink: #ffffff;
+  --gd: #2a78d6;
+  --adam: #eb6834;
+  --muon: #1baf7a;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101317; --surface: #1a1a19; --ink: #f1f3f7; --ink-2: #c2c7d1; --muted: #8a91a0;
+    --grid: #2a2d33; --axis: #3d414a; --line: rgba(255, 255, 255, 0.12);
+    --ctl: #dfe5f2; --ctl-ink: #11151c;
+    --gd: #3987e5; --adam: #d95926; --muon: #199e70;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101317; --surface: #1a1a19; --ink: #f1f3f7; --ink-2: #c2c7d1; --muted: #8a91a0;
+  --grid: #2a2d33; --axis: #3d414a; --line: rgba(255, 255, 255, 0.12);
+  --ctl: #dfe5f2; --ctl-ink: #11151c;
+  --gd: #3987e5; --adam: #d95926; --muon: #199e70;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 48px; display: grid; gap: 22px; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: 0.005em; }
+h1 { font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
+h2 { font-size: 19px; }
+h3 { font-size: 16px; }
+p { margin: 0; }
+.lede { color: var(--ink-2); max-width: 68ch; margin-top: 8px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.mono, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 20px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.ctl { display: grid; gap: 6px; min-width: 0; }
+.ctl-label { font-size: 13px; font-weight: 600; color: var(--ink-2); display: flex; justify-content: space-between; gap: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap; }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ctl); color: var(--ctl-ink); }
+.seg button:focus-visible, .btn:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--gd); outline-offset: 2px; }
+input[type=range] { width: 100%; accent-color: var(--ctl); }
+
+.stage { display: grid; gap: 16px; }
+.scrub { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
+.btn { font: inherit; font-weight: 600; font-size: 14px; background: var(--ctl); color: var(--ctl-ink); border: 0; border-radius: 8px; padding: 8px 16px; cursor: pointer; min-width: 84px; }
+.readout { text-align: right; }
+.readout .big { font-family: var(--f-mono); font-size: 20px; font-variant-numeric: tabular-nums; }
+.readout .small { font-size: 12px; color: var(--muted); }
+.status { font-size: 13px; color: var(--muted); min-height: 1.5em; }
+
+.table-wrap { overflow-x: auto; }
+table.summary { border-collapse: collapse; width: 100%; min-width: 460px; font-size: 14px; }
+.summary th, .summary td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+.summary th:first-child, .summary td:first-child { text-align: left; }
+.summary thead th { font-size: 12px; font-weight: 600; color: var(--muted); }
+.summary td { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.summary td:first-child { font-family: var(--f-body); font-weight: 600; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: 0; }
+
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+figure { margin: 0; }
+.panel, .chart { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 8px; min-width: 0; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.panel-head h3 { display: flex; align-items: center; }
+.panel-head .num { font-size: 12px; color: var(--ink-2); }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: var(--f-mono); fill: var(--muted); font-size: 10px; }
+svg .lbl { fill: var(--ink-2); font-family: var(--f-body); font-size: 10.5px; }
+figcaption { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; }
+.legend i { display: inline-block; width: 14px; height: 2px; margin-right: 6px; border-radius: 1px; }
+
+.theorem { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.theorem-row { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 14px; }
+.theorem-row b { font-family: var(--f-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
+.notes section { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.notes ol, .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink-2); }
+.notes p { color: var(--ink-2); }
+.math { font-family: var(--f-mono); font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; color: var(--ink); }
+a { color: var(--gd); }
+
+.tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ctl); color: var(--ctl-ink); font-size: 12px; line-height: 1.45; padding: 6px 9px; border-radius: 6px; max-width: 260px; font-family: var(--f-body); }
+.tip .num { font-family: var(--f-mono); }
+
+@media (max-width: 560px) {
+  .scrub { grid-template-columns: auto 1fr; }
+  .readout { grid-column: 1 / -1; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+<style>[hidden]{display:none!important}body{margin:0}</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Wang et al., ICLR 2026 · Section 5 simulation</p>
+    <h1>Tail-End Memory Simulator</h1>
+    <p class="lede">A one-layer associative memory learns to map 45 input embeddings to 45 output embeddings. Nine classes get most of the training data. The panels show how well GD, Adam and Muon remember each class once all three have reached the same average loss.</p>
+  </header>
+
+  <section class="controls" aria-label="Settings">
+    <div class="ctl">
+      <label class="ctl-label" for="alpha"><span>Class imbalance α</span><span class="num" id="alphaOut">80%</span></label>
+      <input type="range" id="alpha" min="20" max="95" step="5" value="80" aria-describedby="alphaHelp">
+      <span class="status" id="alphaHelp">Share of examples in the 9 frequent classes</span>
+    </div>
+    <div class="ctl">
+      <span class="ctl-label">Embeddings</span>
+      <div class="seg" role="group" aria-label="Embeddings" id="segEmbed">
+        <button type="button" id="embed-decoupled" data-v="decoupled" aria-pressed="true">Decoupled (identity)</button>
+        <button type="button" id="embed-coupled" data-v="coupled" aria-pressed="false">Coupled (rotated)</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span class="ctl-label">Frequent classes</span>
+      <div class="seg" role="group" aria-label="Frequent classes" id="segLayout">
+        <button type="button" id="layout-grouped" data-v="grouped" aria-pressed="true">Grouped (paper)</button>
+        <button type="button" id="layout-scattered" data-v="scattered" aria-pressed="false">Scattered</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span class="ctl-label">Muon orthogonalization</span>
+      <div class="seg" role="group" aria-label="Muon orthogonalization" id="segMuon">
+        <button type="button" id="muon-exact" data-v="exact" aria-pressed="true">Exact (theory)</button>
+        <button type="button" id="muon-ns5" data-v="ns5" aria-pressed="false">5-step Newton–Schulz</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage" aria-label="Simulation">
+    <div class="scrub">
+      <button type="button" class="btn" id="play">Play</button>
+      <input type="range" id="progress" min="0" max="1000" value="276" aria-label="Training progress, measured by average loss">
+      <div class="readout"><div class="big" id="lossOut">1.00</div><div class="small">average loss</div></div>
+    </div>
+    <div class="status" id="status" role="status"></div>
+
+    <div class="table-wrap">
+      <table class="summary" aria-label="Summary at the current loss">
+        <thead><tr><th scope="col">Optimizer</th><th scope="col">Frequent classes, avg p(correct)</th><th scope="col">Rare classes, avg p(correct)</th><th scope="col">Gap Δ (best − worst class)</th></tr></thead>
+        <tbody id="summaryBody"></tbody>
+      </table>
+    </div>
+
+    <div class="panels" id="panels"></div>
+
+    <figure class="chart">
+      <div class="chart-head">
+        <h2>Gap between the best and worst remembered class</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+      <svg id="gapChart" viewBox="0 0 640 250" role="img" aria-label="Gap Δ versus average loss for each optimizer"></svg>
+      <figcaption>Δ(W) = largest minus smallest p(correct) across classes. Lower means more balanced. Training moves to the right. Click the chart to jump to that loss.</figcaption>
+    </figure>
+
+    <div class="theorem">
+      <h3>One-step check, Theorem 5.3</h3>
+      <p class="status" style="color:var(--ink-2)">From W = 0, take one step with the step size at which the best class first reaches 95%. Probability of the worst class at that point:</p>
+      <div class="theorem-row" id="theoremRow"></div>
+    </div>
+  </section>
+
+  <div class="notes">
+    <section>
+      <h2>Things to try</h2>
+      <ol>
+        <li>Switch Embeddings to Coupled. GD and Muon do not change at all; Adam does. Rotating the embeddings rotates the gradient. Orthogonalization commutes with rotations, sign() does not.</li>
+        <li>With Coupled embeddings, set Frequent classes to Scattered. Adam becomes almost as unbalanced as GD.</li>
+        <li>Switch Muon to 5-step Newton–Schulz, the version used in practice. It is less balanced than exact orthogonalization, but far more balanced than GD.</li>
+        <li>Move α down to 20%. Every class is now equally frequent, and GD becomes balanced too: its imbalance comes only from the class frequencies.</li>
+      </ol>
+    </section>
+    <section>
+      <h2>Why it happens</h2>
+      <p>At W = 0 with decoupled embeddings, the gradient has a closed form:</p>
+      <div class="math">G = (1/K)·1πᵀ − diag(π)</div>
+      <ul>
+        <li>GD steps along −G, which moves class k in proportion to its frequency π<sub>k</sub>. Rare classes lag.</li>
+        <li>Adam (sign-GD) steps along sign(−G) = 2I − J. Every class gets the same push, but only in this coordinate system.</li>
+        <li>Muon steps along the orthogonal factor of −G, which is close to I − J/K. Every class gets the same push in any coordinate system.</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Setup</h2>
+      <p>Section 5 and Appendix D of Wang et al., <a href="https://arxiv.org/abs/2509.26030" target="_blank" rel="noopener">Muon Outperforms Adam in Tail-End Associative Memory Learning</a> (ICLR 2026). K = 45 instead of 999, β = 0.2, W₀ = 0, orthonormal embeddings, and the paper's 3×3 rotation blocks for the coupled case. Adam is sign-GD (β₁ = β₂ = 0) and Muon has no momentum, as in the paper. Every update is rescaled to the same Frobenius norm, so the optimizers differ only in direction, and classes are compared at equal average loss rather than at equal step.</p>
+    </section>
+  </div>
+</main>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+(() => {
+  "use strict";
+  const K = 45, BETA = 0.2, LR = 0.1, LOSS_END = 0.03, MAX_STEPS = 2000;
+  const L0 = Math.log(K);
+  const N_HEAD = Math.round(BETA * K);
+  const OPTS = [
+    { key: "gd", name: "GD", color: "var(--gd)" },
+    { key: "adam", name: "Adam (sign-GD)", color: "var(--adam)" },
+    { key: "muon", name: "Muon", color: "var(--muon)" },
+  ];
+  const settings = { alpha: 0.8, embed: "decoupled", layout: "grouped", muon: "exact" };
+  let runs = null, cfg = null, progress = 0.276, playing = false, rafId = 0;
+
+  // ---------- linear algebra on n×n row-major Float64Arrays ----------
+  function mm(A, B, C, n) {            // C = A·B
+    C.fill(0);
+    for (let i = 0; i < n; i++) {
+      const io = i * n;
+      for (let k = 0; k < n; k++) {
+        const a = A[io + k]; if (a === 0) continue;
+        const ko = k * n;
+        for (let j = 0; j < n; j++) C[io + j] += a * B[ko + j];
+      }
+    }
+    return C;
+  }
+  function mmNT(A, B, C, n) {          // C = A·Bᵀ
+    for (let i = 0; i < n; i++) {
+      const io = i * n;
+      for (let j = 0; j < n; j++) {
+        const jo = j * n; let s = 0;
+        for (let k = 0; k < n; k++) s += A[io + k] * B[jo + k];
+        C[io + j] = s;
+      }
+    }
+    return C;
+  }
+  function mmTN(A, B, C, n) {          // C = Aᵀ·B
+    C.fill(0);
+    for (let k = 0; k < n; k++) {
+      const ko = k * n;
+      for (let i = 0; i < n; i++) {
+        const a = A[ko + i]; if (a === 0) continue;
+        const io = i * n;
+        for (let j = 0; j < n; j++) C[io + j] += a * B[ko + j];
+      }
+    }
+    return C;
+  }
+  function frob(X) { let s = 0; for (let i = 0; i < X.length; i++) s += X[i] * X[i]; return Math.sqrt(s); }
+
+  // Orthogonal factor via Newton–Schulz. "ns5": Keller Jordan's 5 quintic steps (what Muon runs).
+  // "exact": 14 quintic steps to lift small singular values, then 8 cubic steps that converge to 1.
+  function orth(G, n, mode) {
+    const X = Float64Array.from(G);
+    const f = frob(X); if (f === 0) return X;
+    for (let i = 0; i < X.length; i++) X[i] /= f;
+    const A = new Float64Array(n * n), B = new Float64Array(n * n), T = new Float64Array(n * n);
+    const quintic = mode === "exact" ? 14 : 5;
+    for (let s = 0; s < quintic; s++) {
+      mmNT(X, X, A, n); mm(A, A, B, n);
+      for (let i = 0; i < B.length; i++) B[i] = -4.7750 * A[i] + 2.0315 * B[i];
+      mm(B, X, T, n);
+      for (let i = 0; i < X.length; i++) X[i] = 3.4445 * X[i] + T[i];
+    }
+    if (mode === "exact") {
+      for (let s = 0; s < 8; s++) {
+        mmNT(X, X, A, n); mm(A, X, T, n);
+        for (let i = 0; i < X.length; i++) X[i] = 1.5 * X[i] - 0.5 * T[i];
+      }
+    }
+    return X;
+  }
+
+  // ---------- problem setup ----------
+  function rot(a, b, c) {               // Appendix D, R(a,b,c)
+    const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cc = Math.cos(c), sc = Math.sin(c);
+    return [
+      [ca * cb * cc - sa * sc, -ca * cb * sc - sa * cc, ca * sb],
+      [sa * cb * cc + ca * sc, -sa * cb * sc + ca * cc, sa * sb],
+      [-sb * cc, sb * sc, cb],
+    ];
+  }
+  function blockDiag(R, n) {
+    const M = new Float64Array(n * n);
+    for (let b = 0; b < n / 3; b++)
+      for (let r = 0; r < 3; r++)
+        for (let c = 0; c < 3; c++) M[(3 * b + r) * n + 3 * b + c] = R[r][c];
+    return M;
+  }
+  function mulberry32(seed) {
+    return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+  function buildConfig() {
+    const n = K, alpha = settings.alpha;
+    let head = [];
+    if (settings.layout === "grouped") head = Array.from({ length: N_HEAD }, (_, i) => i);
+    else {
+      const idx = Array.from({ length: n }, (_, i) => i), rnd = mulberry32(7);
+      for (let i = n - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+      head = idx.slice(0, N_HEAD).sort((a, b) => a - b);
+    }
+    const isHead = new Array(n).fill(false); head.forEach(k => isHead[k] = true);
+    const pi = new Float64Array(n);
+    for (let k = 0; k < n; k++) pi[k] = isHead[k] ? alpha / N_HEAD : (1 - alpha) / (n - N_HEAD);
+    const coupled = settings.embed === "coupled";
+    const E = coupled ? blockDiag(rot(1.715, 0.876, 3.098), n) : null;
+    const Et = coupled ? blockDiag(rot(3.638, 2.949, 5.218), n) : null;
+    const order = [...head, ...Array.from({ length: n }, (_, i) => i).filter(k => !isHead[k])];
+    return { n, pi, E, Et, isHead, order, muon: settings.muon };
+  }
+
+  // ---------- simulation ----------
+  function direction(key, G, c) {
+    if (key === "gd") return G;
+    if (key === "adam") { const D = new Float64Array(G.length); for (let i = 0; i < G.length; i++) D[i] = Math.sign(G[i]); return D; }
+    return orth(G, c.n, c.muon);
+  }
+  function columnSoftmaxDiag(Z, n, S, pc) {
+    let loss = 0;
+    for (let k = 0; k < n; k++) {
+      let m = -Infinity;
+      for (let i = 0; i < n; i++) if (Z[i * n + k] > m) m = Z[i * n + k];
+      let s = 0;
+      for (let i = 0; i < n; i++) { const e = Math.exp(Z[i * n + k] - m); if (S) S[i * n + k] = e; s += e; }
+      if (S) for (let i = 0; i < n; i++) S[i * n + k] /= s;
+      pc[k] = Math.exp(Z[k * n + k] - m) / s;
+    }
+    return loss;
+  }
+  function simulate(key, c) {
+    const n = c.n, W = new Float64Array(n * n), Z = new Float64Array(n * n), T = new Float64Array(n * n);
+    const S = new Float64Array(n * n), R = new Float64Array(n * n), G = new Float64Array(n * n);
+    const hist = { loss: [], pc: [], gap: [] };
+    for (let t = 0; t < MAX_STEPS; t++) {
+      if (c.E) { mm(W, c.E, T, n); mmTN(c.Et, T, Z, n); } else Z.set(W);
+      const pc = new Float64Array(n);
+      columnSoftmaxDiag(Z, n, S, pc);
+      let loss = 0, mx = -1, mn = 2;
+      for (let k = 0; k < n; k++) { loss -= c.pi[k] * Math.log(pc[k]); if (pc[k] > mx) mx = pc[k]; if (pc[k] < mn) mn = pc[k]; }
+      hist.loss.push(loss); hist.pc.push(pc); hist.gap.push(mx - mn);
+      if (loss < LOSS_END) break;
+      for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) R[i * n + k] = (S[i * n + k] - (i === k ? 1 : 0)) * c.pi[k];
+      if (c.E) { mm(c.Et, R, T, n); mmNT(T, c.E, G, n); } else G.set(R);
+      const D = direction(key, G, c);
+      const sc = LR * Math.sqrt(n) / (frob(D) || 1);
+      for (let i = 0; i < W.length; i++) W[i] -= sc * D[i];
+    }
+    return hist;
+  }
+  // Theorem 5.3: one step from W0 = 0, step size where the best class first reaches 1 - eps.
+  function oneStepWorst(key, c, eps = 0.05) {
+    const n = c.n, R = new Float64Array(n * n), G = new Float64Array(n * n), T = new Float64Array(n * n), M = new Float64Array(n * n);
+    for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) R[i * n + k] = (1 / n - (i === k ? 1 : 0)) * c.pi[k];
+    if (c.E) { mm(c.Et, R, T, n); mmNT(T, c.E, G, n); } else G.set(R);
+    const D = direction(key, G, c);
+    if (c.E) { mm(D, c.E, T, n); mmTN(c.Et, T, M, n); } else M.set(D);
+    const Z = new Float64Array(n * n), pc = new Float64Array(n);
+    const probe = eta => { for (let i = 0; i < M.length; i++) Z[i] = -eta * M[i]; columnSoftmaxDiag(Z, n, null, pc); let mx = 0, mn = 2; for (const p of pc) { if (p > mx) mx = p; if (p < mn) mn = p; } return [mx, mn]; };
+    let lo = 0, hi = 1;
+    while (probe(hi)[0] < 1 - eps && hi < 1e9) hi *= 2;
+    for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2; if (probe(mid)[0] >= 1 - eps) hi = mid; else lo = mid; }
+    return probe(hi)[1];
+  }
+
+  // ---------- matched-loss lookup ----------
+  const lossAt = s => L0 * Math.pow(LOSS_END / L0, s);
+  function stateAt(h, Lt) {
+    const L = h.loss, last = L.length - 1;
+    if (Lt >= L[0]) return { pc: h.pc[0], reached: true };
+    for (let j = 0; j < last; j++) {
+      if (L[j] >= Lt && L[j + 1] <= Lt) {
+        const f = (L[j] - Lt) / ((L[j] - L[j + 1]) || 1), a = h.pc[j], b = h.pc[j + 1], pc = new Float64Array(a.length);
+        for (let k = 0; k < a.length; k++) pc[k] = a[k] + f * (b[k] - a[k]);
+        return { pc, reached: true };
+      }
+    }
+    return { pc: h.pc[last], reached: L[last] <= Lt };
+  }
+  function summarize(pc, c) {
+    let hs = 0, ts = 0, mx = 0, mn = 2;
+    for (let k = 0; k < c.n; k++) { if (c.isHead[k]) hs += pc[k]; else ts += pc[k]; if (pc[k] > mx) mx = pc[k]; if (pc[k] < mn) mn = pc[k]; }
+    return { head: hs / N_HEAD, tail: ts / (c.n - N_HEAD), gap: mx - mn };
+  }
+
+  // ---------- rendering ----------
+  const $ = id => document.getElementById(id);
+  const tip = $("tip");
+  const fmt = (v, d = 2) => v.toFixed(d);
+  function showTip(html, ev) {
+    tip.innerHTML = html; tip.hidden = false;
+    const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    if (x + w > window.innerWidth - 8) x = ev.clientX - w - pad;
+    if (y + h > window.innerHeight - 8) y = ev.clientY - h - pad;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  const hideTip = () => { tip.hidden = true; };
+
+  function barPath(x, y0, w, h, r) {
+    if (h <= 0.3) return `M${x},${y0}h${w}v-0.3h${-w}Z`;
+    r = Math.min(r, w / 2, h);
+    return `M${x},${y0}V${y0 - h + r}Q${x},${y0 - h} ${x + r},${y0 - h}H${x + w - r}Q${x + w},${y0 - h} ${x + w},${y0 - h + r}V${y0}Z`;
+  }
+
+  function buildPanels() {
+    const host = $("panels"); host.innerHTML = "";
+    for (const o of OPTS) {
+      const fig = document.createElement("figure");
+      fig.className = "panel";
+      fig.innerHTML = `<div class="panel-head"><h3><span class="sw" style="background:${o.color}"></span>${o.name}</h3><span class="num" id="ph-${o.key}"></span></div>
+        <svg id="bars-${o.key}" viewBox="0 0 360 168" role="img" aria-label="${o.name}: probability of the correct answer for each class"></svg>`;
+      host.appendChild(fig);
+    }
+  }
+
+  function renderBars(o, pc, c) {
+    const svg = $("bars-" + o.key);
+    const W = 360, left = 30, right = 4, top = 8, base = 128, groupGap = 10;
+    const plotW = W - left - right - groupGap, slot = plotW / c.n, bw = Math.max(2, slot - 2);
+    const yOf = p => base - p * (base - top);
+    let s = "";
+    for (const t of [0, 0.5, 1]) {
+      s += `<line x1="${left}" x2="${W - right}" y1="${yOf(t)}" y2="${yOf(t)}" stroke="var(${t === 0 ? "--axis" : "--grid"})" stroke-width="1"/>`;
+      s += `<text x="${left - 6}" y="${yOf(t) + 3.5}" text-anchor="end">${t === 0.5 ? ".5" : t}</text>`;
+    }
+    const xOf = i => left + i * slot + (i >= N_HEAD ? groupGap : 0) + (slot - bw) / 2;
+    c.order.forEach((k, i) => { s += `<path d="${barPath(xOf(i), base, bw, pc[k] * (base - top), 2)}" fill="${o.color}"/>`; });
+    const headMid = (xOf(0) + xOf(N_HEAD - 1) + bw) / 2, tailMid = (xOf(N_HEAD) + xOf(c.n - 1) + bw) / 2;
+    const pctHead = Math.round(settings.alpha * 100);
+    s += `<text class="lbl" x="${headMid}" y="${base + 16}" text-anchor="middle">${N_HEAD} frequent</text>`;
+    s += `<text x="${headMid}" y="${base + 29}" text-anchor="middle">${pctHead}% of data</text>`;
+    s += `<text class="lbl" x="${tailMid}" y="${base + 16}" text-anchor="middle">${c.n - N_HEAD} rare classes</text>`;
+    s += `<text x="${tailMid}" y="${base + 29}" text-anchor="middle">${100 - pctHead}% of data</text>`;
+    c.order.forEach((k, i) => { s += `<rect x="${xOf(i) - 1}" y="${top}" width="${bw + 2}" height="${base - top}" fill="transparent" data-k="${k}"/>`; });
+    svg.innerHTML = s;
+    svg.onpointermove = ev => {
+      const k = ev.target.getAttribute && ev.target.getAttribute("data-k");
+      if (k === null || k === undefined) { hideTip(); return; }
+      const kk = +k;
+      showTip(`${o.name} · class ${kk + 1} · ${c.isHead[kk] ? "frequent" : "rare"}<br>p(correct) <span class="num">${fmt(pc[kk], 3)}</span>`, ev);
+    };
+    svg.onpointerleave = hideTip;
+  }
+
+  function renderGapChart(Lt) {
+    const svg = $("gapChart");
+    const W = 640, H = 250, left = 44, right = 16, top = 12, bottom = 40;
+    const pw = W - left - right, ph = H - top - bottom;
+    const xOf = L => left + (L0 - Math.log(Math.max(L, LOSS_END))) / (L0 - Math.log(LOSS_END)) * pw;
+    const yOf = g => top + (1 - g) * ph;
+    let s = "";
+    for (const g of [0, 0.25, 0.5, 0.75, 1]) {
+      s += `<line x1="${left}" x2="${W - right}" y1="${yOf(g)}" y2="${yOf(g)}" stroke="var(${g === 0 ? "--axis" : "--grid"})"/>`;
+      s += `<text x="${left - 8}" y="${yOf(g) + 3.5}" text-anchor="end">${g}</text>`;
+    }
+    for (const L of [3, 1, 0.3, 0.1, 0.03]) {
+      s += `<line x1="${xOf(L)}" x2="${xOf(L)}" y1="${top + ph}" y2="${top + ph + 4}" stroke="var(--axis)"/>`;
+      s += `<text x="${xOf(L)}" y="${top + ph + 16}" text-anchor="middle">${L}</text>`;
+    }
+    s += `<text class="lbl" x="${left + pw / 2}" y="${H - 4}" text-anchor="middle">average loss (log scale)</text>`;
+    s += `<text class="lbl" x="12" y="${top + ph / 2}" text-anchor="middle" transform="rotate(-90 12 ${top + ph / 2})">gap Δ</text>`;
+    for (const o of OPTS) {
+      const h = runs[o.key];
+      let d = "";
+      h.loss.forEach((L, j) => { d += (j ? "L" : "M") + xOf(L).toFixed(1) + "," + yOf(h.gap[j]).toFixed(1); });
+      s += `<path d="${d}" fill="none" stroke="${o.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+    const xm = xOf(Lt);
+    s += `<line x1="${xm}" x2="${xm}" y1="${top}" y2="${top + ph}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="3 3"/>`;
+    for (const o of OPTS) {
+      const st = stateAt(runs[o.key], Lt), g = summarize(st.pc, cfg).gap;
+      s += `<circle cx="${xm}" cy="${yOf(g)}" r="4.5" fill="${o.color}" stroke="var(--surface)" stroke-width="2"/>`;
+    }
+    s += `<rect x="${left}" y="${top}" width="${pw}" height="${ph}" fill="transparent" id="gapHit" style="cursor:pointer"/>`;
+    svg.innerHTML = s;
+    const toLoss = ev => {
+      const r = svg.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width * W;
+      const frac = Math.min(1, Math.max(0, (x - left) / pw));
+      return { frac, L: lossAt(frac) };
+    };
+    svg.onpointermove = ev => {
+      if (ev.target.id !== "gapHit") { hideTip(); return; }
+      const { L } = toLoss(ev);
+      const rows = OPTS.map(o => `${o.name} <span class="num">${fmt(summarize(stateAt(runs[o.key], L).pc, cfg).gap)}</span>`).join("<br>");
+      showTip(`Loss <span class="num">${fmt(L)}</span><br>${rows}`, ev);
+    };
+    svg.onpointerleave = hideTip;
+    svg.onclick = ev => { if (ev.target.id !== "gapHit") return; setProgress(toLoss(ev).frac); };
+  }
+
+  function render() {
+    if (!runs) return;
+    const Lt = lossAt(progress);
+    $("lossOut").textContent = fmt(Lt);
+    let body = "";
+    for (const o of OPTS) {
+      const st = stateAt(runs[o.key], Lt), sm = summarize(st.pc, cfg);
+      body += `<tr><td><span class="sw" style="background:${o.color}"></span>${o.name}</td><td>${fmt(sm.head)}</td><td>${fmt(sm.tail)}</td><td>${fmt(sm.gap)}</td></tr>`;
+      $("ph-" + o.key).textContent = `gap ${fmt(sm.gap)}`;
+      renderBars(o, st.pc, cfg);
+    }
+    $("summaryBody").innerHTML = body;
+    renderGapChart(Lt);
+  }
+
+  function setProgress(s) { progress = s; $("progress").value = Math.round(s * 1000); render(); }
+
+  function recompute() {
+    stop();
+    $("status").textContent = "Running the three optimizers…";
+    setTimeout(() => {
+      const t0 = performance.now();
+      cfg = buildConfig();
+      runs = {};
+      for (const o of OPTS) runs[o.key] = simulate(o.key, cfg);
+      const steps = OPTS.map(o => `${o.name} ${runs[o.key].loss.length - 1}`).join(", ");
+      $("theoremRow").innerHTML = OPTS.map(o =>
+        `<span><span class="sw" style="background:${o.color}"></span>${o.name} <b>${fmt(oneStepWorst(o.key, cfg), 3)}</b></span>`).join("");
+      $("status").textContent = `Steps to reach loss ${LOSS_END}: ${steps}. Computed in ${Math.round(performance.now() - t0)} ms.`;
+      render();
+    }, 30);
+  }
+
+  // ---------- controls ----------
+  function wireSeg(groupId, field) {
+    const g = $(groupId);
+    g.addEventListener("click", ev => {
+      const b = ev.target.closest("button"); if (!b) return;
+      settings[field] = b.dataset.v;
+      g.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+      recompute();
+    });
+  }
+  wireSeg("segEmbed", "embed"); wireSeg("segLayout", "layout"); wireSeg("segMuon", "muon");
+  let alphaTimer = 0;
+  $("alpha").addEventListener("input", ev => {
+    settings.alpha = +ev.target.value / 100;
+    $("alphaOut").textContent = ev.target.value + "%";
+    clearTimeout(alphaTimer); alphaTimer = setTimeout(recompute, 200);
+  });
+  $("progress").addEventListener("input", ev => { stop(); progress = +ev.target.value / 1000; render(); });
+
+  function stop() { playing = false; cancelAnimationFrame(rafId); $("play").textContent = "Play"; }
+  $("play").addEventListener("click", () => {
+    if (playing) { stop(); return; }
+    if (progress >= 0.999) progress = 0;
+    playing = true; $("play").textContent = "Pause";
+    let last = performance.now();
+    const tick = now => {
+      if (!playing) return;
+      progress = Math.min(1, progress + (now - last) / 7000); last = now;
+      $("progress").value = Math.round(progress * 1000); render();
+      if (progress >= 1) { stop(); return; }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+  });
+
+  $("legend").innerHTML = OPTS.map(o => `<span><i style="background:${o.color}"></i>${o.name}</span>`).join("");
+  buildPanels();
+  recompute();
+})();
+</script>
+</body>
+</html>
