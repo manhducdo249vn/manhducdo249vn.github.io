@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rare-Fact Recall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column. Picker strip, then the person's six questions answered by both models,
+   then accuracy by frequency group for context, then notes. Same tokens as the simulator demo. */
+:root {
+  --bg: #f4f5f7; --surface: #fcfcfb; --ink: #14181f; --ink-2: #4a5160; --muted: #7c8392;
+  --grid: #e3e6ec; --axis: #c3c8d2; --line: rgba(20, 24, 31, 0.12);
+  --ctl: #1f2a44; --ctl-ink: #ffffff;
+  --adam: #2a78d6; --muon: #eb6834; --good: #0a7d0a; --bad: #c43131; --hl: rgba(31, 42, 68, 0.07);
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101317; --surface: #1a1a19; --ink: #f1f3f7; --ink-2: #c2c7d1; --muted: #8a91a0;
+    --grid: #2a2d33; --axis: #3d414a; --line: rgba(255, 255, 255, 0.12);
+    --ctl: #dfe5f2; --ctl-ink: #11151c;
+    --adam: #3987e5; --muon: #d95926; --good: #2fb52f; --bad: #e66767; --hl: rgba(223, 229, 242, 0.08);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101317; --surface: #1a1a19; --ink: #f1f3f7; --ink-2: #c2c7d1; --muted: #8a91a0;
+  --grid: #2a2d33; --axis: #3d414a; --line: rgba(255, 255, 255, 0.12);
+  --ctl: #dfe5f2; --ctl-ink: #11151c;
+  --adam: #3987e5; --muon: #d95926; --good: #2fb52f; --bad: #e66767; --hl: rgba(223, 229, 242, 0.08);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+[hidden] { display: none !important; }
+.wrap { max-width: 1000px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 48px; display: grid; gap: 20px; }
+h1, h2 { font-family: var(--f-display); font-weight: 600; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
+h2 { font-size: 18px; }
+p { margin: 0; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--ink-2); max-width: 70ch; margin-top: 8px; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+.picker { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: end; padding: 14px 16px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap; }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ctl); color: var(--ctl-ink); }
+.btn { font: inherit; font-weight: 600; font-size: 14px; background: var(--ctl); color: var(--ctl-ink); border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+.btn:disabled { opacity: 0.5; cursor: progress; }
+input[type=text] { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: min(320px, 100%); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--adam); outline-offset: 2px; }
+.status { font-size: 13px; color: var(--muted); min-height: 1.5em; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.person { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.person .name { font-family: var(--f-display); font-size: 24px; font-weight: 600; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font-size: 12px; font-weight: 600; color: var(--muted); }
+th .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+td.q { color: var(--ink-2); }
+td.truth { font-weight: 500; }
+.ans { display: flex; align-items: baseline; gap: 6px; }
+.mark { font-family: var(--f-mono); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.mark.ok { color: var(--good); }
+.mark.no { color: var(--bad); }
+.ans.no .txt { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--bad); text-decoration-thickness: 1px; }
+tfoot td { font-weight: 600; border-bottom: 0; }
+
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 14px; height: 2px; margin-right: 6px; vertical-align: middle; }
+svg { display: block; width: 100%; height: auto; }
+svg text { font-family: var(--f-mono); fill: var(--muted); font-size: 10px; }
+svg .lbl { fill: var(--ink-2); font-family: var(--f-body); font-size: 10.5px; }
+figcaption { font-size: 13px; color: var(--ink-2); }
+.notes { color: var(--ink-2); font-size: 14px; display: grid; gap: 6px; max-width: 75ch; }
+.notes ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+a { color: var(--adam); }
+@media (max-width: 560px) { .person .name { font-size: 20px; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Wang et al., ICLR 2026 · biography QA</p>
+    <h1>Rare-Fact Recall</h1>
+    <p class="lede">Two copies of the same small model, one trained with Adam and one with Muon, memorised six facts about each of 4,096 synthetic people. A few people appear thousands of times in the training data; half of them appear only once per epoch. Pick a person and ask both models.</p>
+  </header>
+
+  <section class="picker" aria-label="Pick a person">
+    <div class="field">
+      <span class="label">Draw a random person from</span>
+      <div class="seg" role="group" aria-label="Frequency" id="segGroup">
+        <button type="button" id="g-rare" data-v="rare" aria-pressed="true">Rarest group</button>
+        <button type="button" id="g-mid" data-v="mid" aria-pressed="false">Middle groups</button>
+        <button type="button" id="g-freq" data-v="freq" aria-pressed="false">Frequent groups</button>
+      </div>
+    </div>
+    <button type="button" class="btn" id="draw" disabled>Random person</button>
+    <div class="field">
+      <label class="label" for="search">or type a name</label>
+      <input type="text" id="search" list="names" placeholder="Loading names…" autocomplete="off" disabled>
+      <datalist id="names"></datalist>
+    </div>
+  </section>
+  <p class="status" id="status" role="status">Loading the two models (about 23 MB)…</p>
+
+  <section class="card" id="result" hidden>
+    <div class="person">
+      <span class="name" id="pname"></span>
+      <span class="chip" id="pgroup"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Question</th><th scope="col">Correct answer</th>
+          <th scope="col"><span class="sw" style="background:var(--adam)"></span>Adam</th>
+          <th scope="col"><span class="sw" style="background:var(--muon)"></span>Muon</th></tr></thead>
+        <tbody id="rows"></tbody>
+        <tfoot><tr><td colspan="2">Exact answers</td><td class="num" id="scoreAdam"></td><td class="num" id="scoreMuon"></td></tr></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <figure class="card" style="margin:0">
+    <div class="chart-head">
+      <h2>First-token accuracy by frequency group, all 4,096 people</h2>
+      <div class="legend"><span><i style="background:var(--adam)"></i>Adam</span><span><i style="background:var(--muon)"></i>Muon</span></div>
+    </div>
+    <svg id="chart" viewBox="0 0 640 230" role="img" aria-label="First-token accuracy per frequency group for both models"></svg>
+    <figcaption id="chartCap">The shaded column is the group of the person above.</figcaption>
+  </figure>
+
+  <section class="notes">
+    <h2>About this demo</h2>
+    <ul>
+      <li>Model: GPT with 4 layers, width 256, 4.5M parameters. Data: 4,096 people in 13 frequency groups; group g has 2<sup>g−1</sup> people, each seen 2<sup>12−g</sup> times per epoch.</li>
+      <li>Both models: seed 0, checkpoint at step 10,000, batch 64. Adam learning rate 5e-4; Muon 0.002 on the hidden matrices, Adam 5e-4 on embeddings, output head and norms.</li>
+      <li>The models run in your browser. Answers are greedy and match the Python code exactly (checked on 24 answers).</li>
+      <li>Code and results: the course repository. Paper: <a href="https://arxiv.org/abs/2509.26030" target="_blank" rel="noopener">arXiv:2509.26030</a>. One-layer simulation: <a href="../">Tail-End Memory Simulator</a>.</li>
+    </ul>
+  </section>
+</main>
+
+<script src="model.js"></script>
+<script src="data.js"></script>
+<script src="weights_adam.js"></script>
+<script src="weights_muon.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const D = window.QA_DATA;
+  const stoi = new Map(D.vocab.map((w, i) => [w, i]));
+  const M = D.m;
+  const QUESTION_TEXT = D.questions.map((q) => q.replace(" ?", "?"));
+  const pretty = (s) => s.replace(/ ,/g, ",");
+  let models = null, pool = "rare", current = null;
+
+  const byGroup = Array.from({ length: M + 1 }, () => []);
+  D.group.forEach((g, i) => byGroup[g].push(i));
+  const POOLS = { rare: [M], mid: [8, 9, 10, 11], freq: [0, 1, 2, 3, 4, 5, 6, 7] };
+
+  function ask(model, pid, a) {
+    const q = D.questions[a].replace("{name}", D.people[pid][0]) + " " + D.answer_prefix;
+    const ids = [D.bos, ...q.split(" ").map((w) => stoi.get(w))];
+    return model.generate(ids, D.eos, 8).map((t) => D.vocab[t]).join(" ");
+  }
+
+  function cell(ans, truth) {
+    const ok = ans === truth;
+    return `<div class="ans ${ok ? "ok" : "no"}"><span class="txt">${pretty(ans) || "(nothing)"}</span>` +
+      `<span class="mark ${ok ? "ok" : "no"}">${ok ? "✓ right" : "✗ wrong"}</span></div>`;
+  }
+
+  function show(pid) {
+    current = pid;
+    const p = D.people[pid], g = D.group[pid], copies = D.copies[pid];
+    $("pname").textContent = p[0];
+    $("pgroup").textContent = `group ${g} · seen ${copies.toLocaleString()} time${copies > 1 ? "s" : ""} per epoch`;
+    let rows = "", sa = 0, sm = 0;
+    D.attrs.forEach((_, a) => {
+      const truth = p[a + 1], ra = ask(models.adam, pid, a), rm = ask(models.muon, pid, a);
+      sa += ra === truth; sm += rm === truth;
+      rows += `<tr><td class="q">${QUESTION_TEXT[a].replace("{name}", "…")}</td><td class="truth">${pretty(truth)}</td>` +
+        `<td>${cell(ra, truth)}</td><td>${cell(rm, truth)}</td></tr>`;
+    });
+    $("rows").innerHTML = rows;
+    $("scoreAdam").textContent = `${sa} / 6`;
+    $("scoreMuon").textContent = `${sm} / 6`;
+    $("result").hidden = false;
+    drawChart(g);
+  }
+
+  function drawChart(hiGroup) {
+    const W = 640, H = 230, left = 40, right = 12, top = 12, bottom = 44;
+    const pw = W - left - right, ph = H - top - bottom, n = M + 1;
+    const xOf = (g) => left + (g + 0.5) * (pw / n), yOf = (v) => top + (1 - v) * ph;
+    let s = "";
+    if (hiGroup !== undefined) s += `<rect x="${left + hiGroup * pw / n}" y="${top}" width="${pw / n}" height="${ph}" fill="var(--hl)"/>`;
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+      s += `<line x1="${left}" x2="${W - right}" y1="${yOf(v)}" y2="${yOf(v)}" stroke="var(${v === 0 ? "--axis" : "--grid"})"/>`;
+      s += `<text x="${left - 8}" y="${yOf(v) + 3.5}" text-anchor="end">${v}</text>`;
+    }
+    for (let g = 0; g < n; g++) s += `<text x="${xOf(g)}" y="${top + ph + 15}" text-anchor="middle">${g}</text>`;
+    s += `<text class="lbl" x="${left}" y="${H - 6}">frequent</text><text class="lbl" x="${W - right}" y="${H - 6}" text-anchor="end">rare</text>`;
+    s += `<text class="lbl" x="${left + pw / 2}" y="${H - 6}" text-anchor="middle">frequency group</text>`;
+    for (const [k, col] of [["adam", "var(--adam)"], ["muon", "var(--muon)"]]) {
+      const ys = D.eval[k].fta;
+      s += `<path d="${ys.map((v, g) => (g ? "L" : "M") + xOf(g).toFixed(1) + "," + yOf(v).toFixed(1)).join("")}" fill="none" stroke="${col}" stroke-width="2"/>`;
+      ys.forEach((v, g) => { s += `<circle cx="${xOf(g)}" cy="${yOf(v)}" r="${g === hiGroup ? 4.5 : 3}" fill="${col}" stroke="var(--surface)" stroke-width="1.5"><title>${k === "adam" ? "Adam" : "Muon"}, group ${g}: ${v.toFixed(3)}</title></circle>`; });
+    }
+    $("chart").innerHTML = s;
+    const a = D.eval.adam.fta[M], m = D.eval.muon.fta[M];
+    $("chartCap").textContent = `Rarest group (${M}): Adam ${a.toFixed(3)}, Muon ${m.toFixed(3)}. ` +
+      (hiGroup !== undefined ? "The shaded column is the group of the person above." : "");
+  }
+
+  function draw() {
+    const groups = POOLS[pool], all = groups.flatMap((g) => byGroup[g]);
+    show(all[Math.floor(Math.random() * all.length)]);
+  }
+
+  $("segGroup").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button"); if (!b) return;
+    pool = b.dataset.v;
+    $("segGroup").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    if (models) draw();
+  });
+  $("draw").addEventListener("click", () => draw());
+  $("search").addEventListener("change", (ev) => {
+    const pid = D.people.findIndex((p) => p[0] === ev.target.value.trim());
+    if (pid >= 0) { show(pid); $("status").textContent = ""; }
+    else $("status").textContent = "No person with that name. Pick one from the list as you type.";
+  });
+
+  drawChart();
+  setTimeout(() => {          // let the page paint before decoding 23 MB of weights
+    try {
+      const t0 = performance.now();
+      models = {};
+      for (const k of ["adam", "muon"]) models[k] = new MuonQA.GPT(MuonQA.decodeWeights(window.QA_WEIGHTS[k], atob), D.config);
+      $("names").innerHTML = D.people.map((p) => `<option value="${p[0]}">`).join("");
+      $("search").disabled = false; $("search").placeholder = "e.g. " + D.people[byGroup[M][0]][0];
+      $("draw").disabled = false;
+      $("status").textContent = `Models ready in ${Math.round(performance.now() - t0)} ms.`;
+      draw();
+    } catch (e) {
+      $("status").textContent = "Could not load the models: " + e.message;
+    }
+  }, 30);
+})();
+</script>
+</body>
+</html>

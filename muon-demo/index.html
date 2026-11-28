@@ -21,9 +21,9 @@
   --line: rgba(20, 24, 31, 0.12);
   --ctl: #1f2a44;
   --ctl-ink: #ffffff;
-  --gd: #2a78d6;
-  --adam: #eb6834;
-  --muon: #1baf7a;
+  --gd: #1baf7a;
+  --adam: #2a78d6;
+  --muon: #eb6834;
   --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
   --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -33,7 +33,7 @@
     --bg: #101317; --surface: #1a1a19; --ink: #f1f3f7; --ink-2: #c2c7d1; --muted: #8a91a0;
     --grid: #2a2d33; --axis: #3d414a; --line: rgba(255, 255, 255, 0.12);
     --ctl: #dfe5f2; --ctl-ink: #11151c;
-    --gd: #3987e5; --adam: #d95926; --muon: #199e70;
+    --gd: #199e70; --adam: #3987e5; --muon: #d95926;
     color-scheme: dark;
   }
 }
@@ -41,7 +41,7 @@
   --bg: #101317; --surface: #1a1a19; --ink: #f1f3f7; --ink-2: #c2c7d1; --muted: #8a91a0;
   --grid: #2a2d33; --axis: #3d414a; --line: rgba(255, 255, 255, 0.12);
   --ctl: #dfe5f2; --ctl-ink: #11151c;
-  --gd: #3987e5; --adam: #d95926; --muon: #199e70;
+  --gd: #199e70; --adam: #3987e5; --muon: #d95926;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -62,7 +62,7 @@ p { margin: 0; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap; }
 .seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--ctl); color: var(--ctl-ink); }
-.seg button:focus-visible, .btn:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--gd); outline-offset: 2px; }
+.seg button:focus-visible, .btn:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--adam); outline-offset: 2px; }
 input[type=range] { width: 100%; accent-color: var(--ctl); }
 
 .stage { display: grid; gap: 16px; }
@@ -106,7 +106,7 @@ figcaption { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
 .notes ol, .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink-2); }
 .notes p { color: var(--ink-2); }
 .math { font-family: var(--f-mono); font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; color: var(--ink); }
-a { color: var(--gd); }
+a { color: var(--adam); }
 
 .tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ctl); color: var(--ctl-ink); font-size: 12px; line-height: 1.45; padding: 6px 9px; border-radius: 6px; max-width: 260px; font-family: var(--f-body); }
 .tip .num { font-family: var(--f-mono); }
@@ -212,6 +212,7 @@ a { color: var(--gd); }
     <section>
       <h2>Setup</h2>
       <p>Section 5 and Appendix D of Wang et al., <a href="https://arxiv.org/abs/2509.26030" target="_blank" rel="noopener">Muon Outperforms Adam in Tail-End Associative Memory Learning</a> (ICLR 2026). K = 45 instead of 999, β = 0.2, W₀ = 0, orthonormal embeddings, and the paper's 3×3 rotation blocks for the coupled case. Adam is sign-GD (β₁ = β₂ = 0) and Muon has no momentum, as in the paper. Every update is rescaled to the same Frobenius norm, so the optimizers differ only in direction, and classes are compared at equal average loss rather than at equal step.</p>
+      <p>To see the same effect in trained Transformers, try the <a href="qa/">QA demo</a>: a 4.5M-parameter model trained with Adam and one trained with Muon answer questions about rare and frequent people.</p>
     </section>
   </div>
 </main>
