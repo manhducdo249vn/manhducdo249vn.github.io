@@ -86,6 +86,7 @@ svg { display: block; width: 100%; height: auto; }
 svg text { font-family: var(--f-mono); fill: var(--muted); font-size: 10px; }
 svg .lbl { fill: var(--ink-2); font-family: var(--f-body); font-size: 10.5px; }
 figcaption { font-size: 13px; color: var(--ink-2); }
+.groupline { font-size: 14px; color: var(--ink-2); }
 .notes { color: var(--ink-2); font-size: 14px; display: grid; gap: 6px; max-width: 75ch; }
 .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 a { color: var(--adam); }
@@ -111,6 +112,14 @@ a { color: var(--adam); }
     </div>
     <button type="button" class="btn" id="draw" disabled>Random person</button>
     <div class="field">
+      <span class="label">Examples</span>
+      <div class="seg" role="group" aria-label="Example people" id="segEx">
+        <button type="button" id="ex-1" data-name="Trocoumun Gaigith Bawusha" aria-pressed="false">Trocoumun Gaigith Bawusha</button>
+        <button type="button" id="ex-2" data-name="Prizios Cheamopear Wiothairin" aria-pressed="false">Prizios Cheamopear Wiothairin</button>
+        <button type="button" id="ex-3" data-name="Shinecioth Drijasand Subeas" aria-pressed="false">Shinecioth Drijasand Subeas</button>
+      </div>
+    </div>
+    <div class="field">
       <label class="label" for="search">or type a name</label>
       <input type="text" id="search" list="names" placeholder="Loading names…" autocomplete="off" disabled>
       <datalist id="names"></datalist>
@@ -132,6 +141,7 @@ a { color: var(--adam); }
         <tfoot><tr><td colspan="2">Exact answers</td><td class="num" id="scoreAdam"></td><td class="num" id="scoreMuon"></td></tr></tfoot>
       </table>
     </div>
+    <p class="groupline" id="groupLine"></p>
   </section>
 
   <figure class="card" style="margin:0">
@@ -201,6 +211,16 @@ a { color: var(--adam); }
     $("scoreAdam").textContent = `${sa} / 6`;
     $("scoreMuon").textContent = `${sm} / 6`;
     $("result").hidden = false;
+    $("segEx").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.name === p[0])));
+    const members = byGroup[g];
+    let better = 0, worse = 0;
+    for (const i of members) { const d = D.scores.muon[i] - D.scores.adam[i]; if (d > 0) better++; else if (d < 0) worse++; }
+    const mean = (k) => (members.reduce((s, i) => s + D.scores[k][i], 0) / members.length).toFixed(2);
+    $("groupLine").textContent = members.length === 1
+      ? `This person is the only one in group ${g}.`
+      : `Across all ${members.length.toLocaleString()} people in group ${g}: Muon gets more answers right than Adam for ` +
+        `${better.toLocaleString()}, the same number for ${(members.length - better - worse).toLocaleString()}, fewer for ` +
+        `${worse.toLocaleString()}. Average exact answers: Adam ${mean("adam")} / 6, Muon ${mean("muon")} / 6.`;
     drawChart(g);
   }
 
@@ -240,6 +260,11 @@ a { color: var(--adam); }
     if (models) draw();
   });
   $("draw").addEventListener("click", () => draw());
+  $("segEx").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button"); if (!b || !models) return;
+    const pid = D.people.findIndex((p) => p[0] === b.dataset.name);
+    if (pid >= 0) show(pid);
+  });
   $("search").addEventListener("change", (ev) => {
     const pid = D.people.findIndex((p) => p[0] === ev.target.value.trim());
     if (pid >= 0) { show(pid); $("status").textContent = ""; }
